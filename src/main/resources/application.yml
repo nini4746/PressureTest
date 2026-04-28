@@ -1,0 +1,18 @@
+server:
+  port: 8120
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+
+pressure:
+  budget: 8
+  threshold:
+    admit: 30.0
+    degrade: 20.0
+  score:
+    tier-weight: 30.0
+    cost-penalty: 1.0
+    load-penalty: 50.0
