@@ -5,7 +5,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
-public class ScoreCalculator {
+public class ScoreCalculator implements AdmissionPolicy {
+
+    @Override public String name() { return "weighted-tier-cost-load"; }
 
     private final double tierWeight;
     private final double costPenalty;
@@ -22,6 +24,7 @@ public class ScoreCalculator {
         this.budget = budget;
     }
 
+    @Override
     public double score(WorkRequest req, int currentInFlight) {
         double tierComponent = req.tier().weight() * tierWeight;
         double costComponent = -costPenalty * Math.max(1, req.costUnits());

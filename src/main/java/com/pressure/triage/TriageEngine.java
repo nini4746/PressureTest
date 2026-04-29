@@ -13,17 +13,17 @@ public class TriageEngine {
     private static final int MAX_CAS_RETRIES = 16;
 
     private final LoadMonitor monitor;
-    private final ScoreCalculator scorer;
+    private final AdmissionPolicy policy;
     private final int budget;
     private final double admitThreshold;
     private final double degradeThreshold;
 
-    public TriageEngine(LoadMonitor monitor, ScoreCalculator scorer,
+    public TriageEngine(LoadMonitor monitor, AdmissionPolicy policy,
                         @Value("${pressure.budget:8}") int budget,
                         @Value("${pressure.threshold.admit:30.0}") double admitThreshold,
                         @Value("${pressure.threshold.degrade:20.0}") double degradeThreshold) {
         this.monitor = monitor;
-        this.scorer = scorer;
+        this.policy = policy;
         this.budget = budget;
         this.admitThreshold = admitThreshold;
         this.degradeThreshold = degradeThreshold;
@@ -41,7 +41,7 @@ public class TriageEngine {
     private Decision decide(WorkRequest req) {
         for (int attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
             int inFlight = monitor.currentInFlight();
-            double score = scorer.score(req, inFlight);
+            double score = policy.score(req, inFlight);
             DecisionKind kind = classify(inFlight, score);
             if (kind == DecisionKind.SHED) {
                 monitor.onShed();
@@ -59,7 +59,7 @@ public class TriageEngine {
         }
         // contention exhausted: shed gracefully
         int inFlight = monitor.currentInFlight();
-        double score = scorer.score(req, inFlight);
+        double score = policy.score(req, inFlight);
         monitor.onShed();
         return Decision.shed(score, "contention");
     }
