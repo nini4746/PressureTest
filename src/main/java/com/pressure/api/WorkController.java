@@ -5,6 +5,9 @@ import com.pressure.model.UserTier;
 import com.pressure.model.WorkRequest;
 import com.pressure.triage.LoadMonitor;
 import com.pressure.triage.TriageEngine;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,10 +32,13 @@ public class WorkController {
         this.retryAfterMs = retryAfterMs;
     }
 
-    public record WorkBody(String userId, String tier, int costUnits, String operation) {}
+    public record WorkBody(@NotBlank String userId,
+                           @NotBlank String tier,
+                           @Min(0) int costUnits,
+                           @NotBlank String operation) {}
 
     @PostMapping("/work")
-    public ResponseEntity<Map<String, Object>> work(@RequestBody WorkBody body) {
+    public ResponseEntity<Map<String, Object>> work(@Valid @RequestBody WorkBody body) {
         UserTier tier;
         try {
             tier = UserTier.valueOf(body.tier().toUpperCase());
@@ -66,6 +72,8 @@ public class WorkController {
         }
     }
 
+    // degraded mode skips the expensive operation step; full mode computes a digest of the operation
+    // string to mimic real work. tests use the "degraded"/"opDigest" fields to verify the path taken.
     private Map<String, Object> executeWork(WorkRequest req, Decision d) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("admitted", true);
@@ -74,11 +82,19 @@ public class WorkController {
         if (d.degraded()) {
             body.put("result", "minimal");
             body.put("notice", "served with reduced features under load");
-        } else {
-            body.put("result", "ok");
-            body.put("operation", req.operation());
+            return body;
         }
+        body.put("result", "ok");
+        body.put("operation", req.operation());
+        body.put("opDigest", computeDigest(req.operation()));
         return body;
+    }
+
+    private static int computeDigest(String op) {
+        if (op == null) return 0;
+        int h = 0;
+        for (int i = 0; i < op.length(); i++) h = h * 31 + op.charAt(i);
+        return h;
     }
 
     @GetMapping("/load")
