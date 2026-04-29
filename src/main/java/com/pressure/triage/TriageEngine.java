@@ -5,8 +5,12 @@ import com.pressure.model.WorkRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.TimeUnit;
+
 @Service
 public class TriageEngine {
+
+    private static final int MAX_CAS_RETRIES = 16;
 
     private final LoadMonitor monitor;
     private final ScoreCalculator scorer;
@@ -26,28 +30,50 @@ public class TriageEngine {
     }
 
     public Decision triage(WorkRequest req) {
+        long start = System.nanoTime();
+        try {
+            return decide(req);
+        } finally {
+            monitor.decisionTimer().record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
+        }
+    }
+
+    private Decision decide(WorkRequest req) {
+        for (int attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
+            int inFlight = monitor.currentInFlight();
+            double score = scorer.score(req, inFlight);
+            DecisionKind kind = classify(inFlight, score);
+            if (kind == DecisionKind.SHED) {
+                monitor.onShed();
+                return Decision.shed(score, "load=" + inFlight + " score=" + String.format("%.1f", score));
+            }
+            if (!monitor.tryReserve(inFlight)) {
+                continue;
+            }
+            monitor.onAdmit();
+            if (kind == DecisionKind.DEGRADED) {
+                monitor.onDegraded();
+                return Decision.degraded(score);
+            }
+            return Decision.admit(score);
+        }
+        // contention exhausted: shed gracefully
         int inFlight = monitor.currentInFlight();
         double score = scorer.score(req, inFlight);
-
-        if (inFlight < budget) {
-            monitor.onAdmit();
-            return Decision.admit(score);
-        }
-
-        if (score >= admitThreshold) {
-            monitor.onAdmit();
-            return Decision.admit(score);
-        }
-        if (score >= degradeThreshold) {
-            monitor.onAdmit();
-            monitor.onDegraded();
-            return Decision.degraded(score);
-        }
         monitor.onShed();
-        return Decision.shed(score, "load=" + inFlight + " score=" + String.format("%.1f", score));
+        return Decision.shed(score, "contention");
+    }
+
+    private DecisionKind classify(int inFlight, double score) {
+        if (inFlight < budget) return DecisionKind.ADMIT;
+        if (score >= admitThreshold) return DecisionKind.ADMIT;
+        if (score >= degradeThreshold) return DecisionKind.DEGRADED;
+        return DecisionKind.SHED;
     }
 
     public void release() {
         monitor.onComplete();
     }
+
+    private enum DecisionKind { ADMIT, DEGRADED, SHED }
 }

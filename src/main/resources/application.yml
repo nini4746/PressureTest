@@ -8,11 +8,13 @@ management:
         include: health,metrics,prometheus
 
 pressure:
-  budget: 8
+  budget: ${PRESSURE_BUDGET:8}
   threshold:
-    admit: 30.0
-    degrade: 20.0
+    admit: ${PRESSURE_ADMIT_THRESHOLD:30.0}
+    degrade: ${PRESSURE_DEGRADE_THRESHOLD:20.0}
   score:
-    tier-weight: 30.0
-    cost-penalty: 1.0
-    load-penalty: 50.0
+    tier-weight: ${PRESSURE_TIER_WEIGHT:30.0}
+    cost-penalty: ${PRESSURE_COST_PENALTY:1.0}
+    load-penalty: ${PRESSURE_LOAD_PENALTY:50.0}
+  shed:
+    retry-after-ms: ${PRESSURE_RETRY_AFTER_MS:200}
