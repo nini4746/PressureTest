@@ -92,6 +92,40 @@ class TriageTests {
 	}
 
 	@Test
+	void high_concurrency_keeps_in_flight_within_admitted_count() throws Exception {
+		int threads = 32;
+		int perThread = 200;
+		java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+		java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+		java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(threads);
+		java.util.List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+		for (int i = 0; i < threads; i++) {
+			futures.add(pool.submit(() -> {
+				try { start.await(); } catch (InterruptedException ie) { return; }
+				for (int k = 0; k < perThread; k++) {
+					Decision d = engine.triage(req(UserTier.STANDARD, 1));
+					if (d.admit()) {
+						engine.release();
+					}
+				}
+				done.countDown();
+			}));
+		}
+		long t0 = System.nanoTime();
+		start.countDown();
+		done.await();
+		long elapsedNs = System.nanoTime() - t0;
+		pool.shutdown();
+		for (var f : futures) f.get();
+		long total = (long) threads * perThread;
+		double rps = total / (elapsedNs / 1_000_000_000.0);
+		assertEquals(0, monitor.currentInFlight(), "all admits must be released");
+		assertTrue(monitor.totalAdmitted() + monitor.totalShed() >= total,
+				"every request must be classified");
+		System.out.println("triage RPS=" + (long) rps + " total=" + total);
+	}
+
+	@Test
 	void release_decrements_in_flight() {
 		Decision d = engine.triage(req(UserTier.PREMIUM, 1));
 		assertTrue(d.admit());

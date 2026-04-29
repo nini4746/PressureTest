@@ -3,8 +3,10 @@ package com.pressure.triage;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.distribution.DistributionStatisticConfig;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -26,10 +28,17 @@ public class LoadMonitor {
         this.admitCounter = Counter.builder("pressure.admitted").register(meters);
         this.shedCounter = Counter.builder("pressure.shed").register(meters);
         this.degradeCounter = Counter.builder("pressure.degraded").register(meters);
+        // expiry=5min keeps the histogram windowed (avoids unbounded memory growth from publishPercentiles)
         this.decisionTimer = Timer.builder("pressure.decision.latency")
-                .publishPercentiles(0.5, 0.95, 0.99).register(meters);
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .distributionStatisticExpiry(Duration.ofMinutes(5))
+                .distributionStatisticBufferLength(3)
+                .register(meters);
         this.workTimer = Timer.builder("pressure.work.latency")
-                .publishPercentiles(0.5, 0.95, 0.99).register(meters);
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .distributionStatisticExpiry(Duration.ofMinutes(5))
+                .distributionStatisticBufferLength(3)
+                .register(meters);
         meters.gauge("pressure.in_flight", inFlight);
     }
 
