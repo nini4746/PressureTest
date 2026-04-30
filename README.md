@@ -27,7 +27,7 @@ score = tier_weight * tier_value
 ## 실행
 
 ```bash
-mvn test                    # 7건 테스트
+mvn test                    # 12건 테스트
 mvn spring-boot:run         # 8120 포트
 ```
 
@@ -50,19 +50,15 @@ curl -X POST localhost:8120/api/work \
 curl localhost:8120/api/load
 ```
 
-## 테스트 (7건)
+## 테스트 (12건)
 
-| 케이스 | 검증 |
-|---|---|
-| `score_premium_higher_than_free_at_same_load` | 같은 부하에서 PREMIUM > FREE |
-| `score_decreases_with_load` | in_flight 증가 시 점수 감소 |
-| `below_budget_always_admits` | budget 미만이면 무조건 admit |
-| `overload_sheds_low_tier_high_cost_first` | 과부하 시 FREE+고비용 먼저 shed, PREMIUM 통과 |
-| `overload_marks_borderline_as_degraded` | 임계값 사이는 degraded 응답 |
-| `monitor_counters_track_decisions` | shed 카운터 증가 추적 |
-| `release_decrements_in_flight` | release 시 in_flight 감소 |
+`TriageTests` (8건):
+- PREMIUM > FREE 점수, 부하 증가 시 점수 감소, budget 미만 무조건 admit, 과부하 시 FREE+고비용 우선 shed, 경계 점수 degraded, 카운터 추적, 동시성 시 in_flight ≤ admitted, release 시 in_flight 감소
 
-`mvn test` → 7/7 pass.
+`HttpFlowTests` (4건):
+- 빈 userId 400, 음수 cost 400, 부정 tier 400, admitted 응답에 op digest 포함
+
+`mvn test` → 12/12 pass.
 
 ## 의도적으로 보류한 항목
 
