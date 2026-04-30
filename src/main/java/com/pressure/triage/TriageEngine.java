@@ -14,19 +14,16 @@ public class TriageEngine {
 
     private final LoadMonitor monitor;
     private final AdmissionPolicy policy;
+    private final DynamicThresholdProvider thresholds;
     private final int budget;
-    private final double admitThreshold;
-    private final double degradeThreshold;
 
     public TriageEngine(LoadMonitor monitor, AdmissionPolicy policy,
-                        @Value("${pressure.budget:8}") int budget,
-                        @Value("${pressure.threshold.admit:30.0}") double admitThreshold,
-                        @Value("${pressure.threshold.degrade:20.0}") double degradeThreshold) {
+                        DynamicThresholdProvider thresholds,
+                        @Value("${pressure.budget:8}") int budget) {
         this.monitor = monitor;
         this.policy = policy;
+        this.thresholds = thresholds;
         this.budget = budget;
-        this.admitThreshold = admitThreshold;
-        this.degradeThreshold = degradeThreshold;
     }
 
     public Decision triage(WorkRequest req) {
@@ -45,12 +42,16 @@ public class TriageEngine {
             DecisionKind kind = classify(inFlight, score);
             if (kind == DecisionKind.SHED) {
                 monitor.onShed();
+                thresholds.recordOutcome(true);
+                thresholds.recordLoadFraction(inFlight / (double) Math.max(1, budget));
                 return Decision.shed(score, "load=" + inFlight + " score=" + String.format("%.1f", score));
             }
             if (!monitor.tryReserve(inFlight)) {
                 continue;
             }
             monitor.onAdmit();
+            thresholds.recordOutcome(false);
+            thresholds.recordLoadFraction(inFlight / (double) Math.max(1, budget));
             if (kind == DecisionKind.DEGRADED) {
                 monitor.onDegraded();
                 return Decision.degraded(score);
@@ -61,13 +62,16 @@ public class TriageEngine {
         int inFlight = monitor.currentInFlight();
         double score = policy.score(req, inFlight);
         monitor.onShed();
+        thresholds.recordOutcome(true);
         return Decision.shed(score, "contention");
     }
 
     private DecisionKind classify(int inFlight, double score) {
         if (inFlight < budget) return DecisionKind.ADMIT;
-        if (score >= admitThreshold) return DecisionKind.ADMIT;
-        if (score >= degradeThreshold) return DecisionKind.DEGRADED;
+        double admit = thresholds.admitThreshold();
+        double degrade = thresholds.degradeThreshold();
+        if (score >= admit) return DecisionKind.ADMIT;
+        if (score >= degrade) return DecisionKind.DEGRADED;
         return DecisionKind.SHED;
     }
 

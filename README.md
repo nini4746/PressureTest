@@ -50,7 +50,7 @@ curl -X POST localhost:8120/api/work \
 curl localhost:8120/api/load
 ```
 
-## 테스트 (12건)
+## 테스트 (24건)
 
 `TriageTests` (8건):
 - PREMIUM > FREE 점수, 부하 증가 시 점수 감소, budget 미만 무조건 admit, 과부하 시 FREE+고비용 우선 shed, 경계 점수 degraded, 카운터 추적, 동시성 시 in_flight ≤ admitted, release 시 in_flight 감소
@@ -58,12 +58,24 @@ curl localhost:8120/api/load
 `HttpFlowTests` (4건):
 - 빈 userId 400, 음수 cost 400, 부정 tier 400, admitted 응답에 op digest 포함
 
-`mvn test` → 12/12 pass.
+`DynamicThresholdTests` (8건):
+- base 시작값, 잘못된 bound 거부, 지속적 shed → admit 임계값 상승, allow 회복 시 하락, degrade < admit 항상 보장, override 우선, reset, extreme input clamp
+
+`AsyncDispatcherTests` (4건):
+- 단일 요청 dispatch + release, 과부하시 shed 결정은 enqueue되지 않음, 다수 동시 제출, queue/stat 노출
+
+`mvn test` → 24/24 pass.
 
 ## 의도적으로 보류한 항목
 
-- 우선순위 큐 기반 비동기 디스패처 (현 MVP는 동기 budget gate)
-- 시간 윈도우 기반 동적 임계값 학습
 - 카오스 테스트, 부하 시뮬레이터
 - 시각화 대시보드 (Grafana)
 - 다중 노드 공유 budget
+
+## 비동기 디스패처
+
+`AsyncDispatcher`는 동기 triage 결정을 그대로 활용하면서, 실제 work step을 worker pool로 위임한다. 큐는 LinkedBlockingQueue 기반 (capacity=`pressure.async.queue-capacity`), 풀은 fixed-size (`pressure.async.workers`). 큐가 꽉 차면 reservation을 release하고 즉시 shed로 응답. `/admin/async/work`로 트리거, `/admin/async`로 상태 조회.
+
+## 동적 임계값
+
+`DynamicThresholdProvider`는 shed 비율의 EMA를 추적하여 admit/degrade 임계값을 자동 조정한다. shed가 늘면 임계값을 위로(`admit_max`까지) 밀어 borderline 트래픽을 더 적극적으로 차단. 임계값은 `[admitMin, admitMax]` / `[degradeMin, degradeMax]`로 clamp되며 항상 `degrade < admit`. `/admin/threshold/override?admit=...&degrade=...`로 수동 잠금 가능.

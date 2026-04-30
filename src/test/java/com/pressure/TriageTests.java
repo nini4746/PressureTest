@@ -19,10 +19,12 @@ class TriageTests {
 	@Autowired private TriageEngine engine;
 	@Autowired private LoadMonitor monitor;
 	@Autowired private ScoreCalculator scorer;
+	@Autowired private com.pressure.triage.DynamicThresholdProvider thresholds;
 
 	@BeforeEach
 	void resetState() {
 		monitor.reset();
+		thresholds.resetState();
 	}
 
 	private WorkRequest req(UserTier tier, int cost) {

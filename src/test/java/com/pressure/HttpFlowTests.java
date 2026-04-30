@@ -19,10 +19,12 @@ class HttpFlowTests {
 
     @Autowired private MockMvc mvc;
     @Autowired private LoadMonitor monitor;
+    @Autowired private com.pressure.triage.DynamicThresholdProvider thresholds;
 
     @BeforeEach
     void resetState() {
         monitor.reset();
+        thresholds.resetState();
     }
 
     @Test
