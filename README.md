@@ -71,10 +71,11 @@ curl localhost:8120/api/load
 - 카오스 테스트, 부하 시뮬레이터
 - 시각화 대시보드 (Grafana)
 - 다중 노드 공유 budget
+- Spring WebFlux 기반 non-blocking 처리 — 초기 명세(`PressureTest.md`)는 WebFlux를 요구했으나, 실제 구현은 `spring-boot-starter-web` 기반 blocking Servlet MVC다.
 
 ## 비동기 디스패처
 
-`AsyncDispatcher`는 동기 triage 결정을 그대로 활용하면서, 실제 work step을 worker pool로 위임한다. 큐는 LinkedBlockingQueue 기반 (capacity=`pressure.async.queue-capacity`), 풀은 fixed-size (`pressure.async.workers`). 큐가 꽉 차면 reservation을 release하고 즉시 shed로 응답. `/admin/async/work`로 트리거, `/admin/async`로 상태 조회.
+`AsyncDispatcher`는 동기 triage 결정을 그대로 활용하면서, 실제 work step을 worker pool로 위임한다. 큐는 실행 시 FIFO `LinkedBlockingQueue` 기반이며 우선순위 없이 도착 순서대로 처리된다 (capacity=`pressure.async.queue-capacity`; 코드에는 미사용 `PriorityBlockingQueue` 준비 로직이 남아있지만 실제 `ThreadPoolExecutor`는 이를 쓰지 않는다). 풀은 fixed-size (`pressure.async.workers`). 큐가 꽉 차면 reservation을 release하고 즉시 shed로 응답. `/admin/async/work`로 트리거, `/admin/async`로 상태 조회.
 
 ## 동적 임계값
 
