@@ -5,14 +5,11 @@ import com.pressure.model.WorkRequest;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -22,17 +19,14 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Optional async pipeline that decouples request acceptance from work execution.
  * Useful when the work step is non-trivial and clients can tolerate eventual
- * delivery — bounded queue protects against unbounded memory growth.
+ * delivery — the bounded queue protects against unbounded memory growth.
  *
  * Triage decisions are still made synchronously in the caller's thread (cheap).
- * Only the work step (and its release()) runs on the worker pool. Queue is
- * priority-ordered by triage score so high-value tasks drain first when the
- * pool is saturated.
+ * Only the work step (and its release()) runs on the worker pool, drained
+ * FIFO from a bounded queue.
  */
 @Component
 public class AsyncDispatcher {
-
-    private static final Logger log = LoggerFactory.getLogger(AsyncDispatcher.class);
 
     private final TriageEngine triage;
     private final LoadMonitor monitor;
@@ -58,17 +52,7 @@ public class AsyncDispatcher {
 
     @PostConstruct
     void start() {
-        // priority queue: higher decision score => earlier execution
-        var queue = new PriorityBlockingQueue<Runnable>(64, (a, b) -> {
-            if (a instanceof PriorityTask pa && b instanceof PriorityTask pb) {
-                return Double.compare(pb.priority, pa.priority);
-            }
-            return 0;
-        });
-        // wrap to enforce capacity since PriorityBlockingQueue is unbounded
         var bounded = new LinkedBlockingQueue<Runnable>(queueCapacity);
-        // we cannot use both bounded + priority directly; instead use bounded LinkedBlockingQueue
-        // but track priority via natural ordering via re-queue. Simpler: enforce capacity ourselves.
         this.pool = new ThreadPoolExecutor(workers, workers, 60, TimeUnit.SECONDS, bounded,
                 r -> {
                     Thread t = new Thread(r, "pressure-async-" + seq.incrementAndGet());
@@ -100,7 +84,7 @@ public class AsyncDispatcher {
         }
         try {
             queued.incrementAndGet();
-            pool.execute(new PriorityTask(decision.score(), () -> {
+            pool.execute(() -> {
                 queued.decrementAndGet();
                 long start = System.nanoTime();
                 Throwable err = null;
@@ -116,7 +100,7 @@ public class AsyncDispatcher {
                 }
                 if (err != null) result.completeExceptionally(err);
                 else result.complete(new AsyncResult(decision, true, null));
-            }));
+            });
         } catch (RejectedExecutionException ree) {
             queued.decrementAndGet();
             // queue full -> release the reservation triage made and report shed
@@ -133,19 +117,4 @@ public class AsyncDispatcher {
     public int queueCapacity() { return queueCapacity; }
 
     public record AsyncResult(Decision decision, boolean executed, String rejectionReason) {}
-
-    private static final class PriorityTask implements Runnable {
-        final double priority;
-        final Runnable delegate;
-
-        PriorityTask(double priority, Runnable delegate) {
-            this.priority = priority;
-            this.delegate = delegate;
-        }
-
-        @Override
-        public void run() {
-            delegate.run();
-        }
-    }
 }
